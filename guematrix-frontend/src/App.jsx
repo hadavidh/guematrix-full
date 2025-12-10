@@ -1,8 +1,6 @@
 import { useState, useEffect } from "react";
 import MatrixBackground from "./MatrixBackground";
 
-
-
 const METHODS = [
   { value: "hechrechi", label: "Mispar Hechrechi" },
   { value: "gadol", label: "Mispar Gadol" },
@@ -32,11 +30,323 @@ const BOOK_NAME_TO_CODE = {
 
 const API_BASE_DB = "http://localhost:3001/api";
 
-function App() {
-  // Onglet actif : calculateur ou Analyse DB
-  const [activeTab, setActiveTab] = useState("calc"); // "calc" | "db"
+//
+// ---------- Onglet "Codes Torah" (ELS linéaire + mini matrice) ----------
+//
+function TorahCodesTab() {
+  const [torah, setTorah] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
 
-  // --- ÉTAT CALCULATEUR (ton code existant) ---
+  const [pattern, setPattern] = useState("");
+  const [skip, setSkip] = useState(1);
+  const [matches, setMatches] = useState([]);
+
+  const [selectedMatch, setSelectedMatch] = useState(null);
+  const [matrixCols, setMatrixCols] = useState(50);
+
+  // Charger la Torah une seule fois
+  useEffect(() => {
+    const load = async () => {
+      try {
+        setLoading(true);
+        setError("");
+        const res = await fetch(`${API_BASE_DB}/torah/raw`);
+        if (!res.ok) {
+          throw new Error(`HTTP ${res.status}`);
+        }
+        const data = await res.json();
+        setTorah(data.torah || "");
+      } catch (e) {
+        console.error(e);
+        setError("Impossible de charger la Torah depuis l’API.");
+      } finally {
+        setLoading(false);
+      }
+    };
+    load();
+  }, []);
+
+  const handleSearchCodes = () => {
+    setMatches([]);
+    setSelectedMatch(null);
+    setError("");
+
+    if (!pattern.trim()) {
+      setError("Entre un mot hébreu à chercher.");
+      return;
+    }
+    if (!torah) {
+      setError("La Torah n’est pas encore chargée.");
+      return;
+    }
+
+    const s = parseInt(skip, 10);
+    if (!s || s === 0) {
+      setError("Le saut (skip) doit être un entier non nul (ex : 1, 2, -3).");
+      return;
+    }
+
+    const pat = pattern.trim();
+    const lenT = torah.length;
+    const lenP = pat.length;
+    const results = [];
+
+    for (let start = 0; start < lenT; start++) {
+      let ok = true;
+      for (let i = 0; i < lenP; i++) {
+        const idx = start + i * s;
+        if (idx < 0 || idx >= lenT || torah[idx] !== pat[i]) {
+          ok = false;
+          break;
+        }
+      }
+      if (ok) {
+        results.push(start);
+        if (results.length >= 200) break; // limiter l’affichage
+      }
+    }
+
+    setMatches(results);
+  };
+
+  const renderContext = (index) => {
+    const windowSize = 40;
+    const start = Math.max(0, index - windowSize);
+    const end = Math.min(torah.length, index + windowSize);
+    const before = torah.slice(start, index);
+    const mid = torah.slice(index, index + pattern.length);
+    const after = torah.slice(index + pattern.length, end);
+
+    return (
+      <span dir="rtl" style={{ fontSize: "1.2rem" }}>
+        {before}
+        <span style={{ backgroundColor: "#facc15", color: "#111827" }}>
+          {mid}
+        </span>
+        {after}
+      </span>
+    );
+  };
+
+  // --- Vue matrice autour du match sélectionné ---
+  const renderMiniMatrix = () => {
+    if (!torah) {
+      return (
+        <p style={styles.dbHint}>
+          Le texte de la Torah n’est pas encore chargé.
+        </p>
+      );
+    }
+    if (selectedMatch == null) {
+      return (
+        <p style={styles.dbHint}>
+          Clique sur un match dans la liste ci-dessus pour afficher la matrice
+          locale.
+        </p>
+      );
+    }
+
+    const cols = Math.max(10, Math.min(200, parseInt(matrixCols, 10) || 50));
+    const totalRows = 20;
+
+    const centerIndex = selectedMatch;
+    const centerRow = Math.floor(centerIndex / cols);
+
+    const halfRows = Math.floor(totalRows / 2);
+    let startRow = centerRow - halfRows;
+    if (startRow < 0) startRow = 0;
+    let endRow = startRow + totalRows;
+    const maxRow = Math.ceil(torah.length / cols);
+    if (endRow > maxRow) {
+      endRow = maxRow;
+      startRow = Math.max(0, endRow - totalRows);
+    }
+
+    // indices des lettres du mot (en tenant compte du skip)
+    const highlightIndices = new Set();
+    const step = parseInt(skip, 10) || 1;
+    if (pattern) {
+      for (let i = 0; i < pattern.length; i++) {
+        const idx = centerIndex + i * step;
+        if (idx >= 0 && idx < torah.length) {
+          highlightIndices.add(idx);
+        }
+      }
+    }
+
+    const rows = [];
+    for (let r = startRow; r < endRow; r++) {
+      const cells = [];
+      for (let c = 0; c < cols; c++) {
+        const idx = r * cols + c;
+        const ch = idx < torah.length ? torah[idx] : " ";
+        const isHighlight = highlightIndices.has(idx);
+        const isCenter = idx === centerIndex;
+
+        let cellStyle = styles.matrixCell;
+        if (isHighlight) {
+          cellStyle = { ...cellStyle, ...styles.matrixCellHighlight };
+        }
+        if (isCenter) {
+          cellStyle = { ...cellStyle, ...styles.matrixCellCenter };
+        }
+
+        cells.push(
+          <div key={c} style={cellStyle} dir="rtl">
+            {ch}
+          </div>
+        );
+      }
+      rows.push(
+        <div key={r} style={styles.matrixRow}>
+          {cells}
+        </div>
+      );
+    }
+
+    return (
+      <div>
+        <p style={styles.dbHint}>
+          Match sélectionné à l’index <strong>{centerIndex}</strong> – affichage
+          sur {cols} colonnes. Les lettres du mot sont surlignées, la première
+          lettre a un bord vert.
+        </p>
+        <div style={styles.matrixContainer}>{rows}</div>
+      </div>
+    );
+  };
+
+  return (
+    <div style={{ marginTop: "1.5rem" }}>
+      <section style={styles.dbSection}>
+        <h2>Codes de la Torah (ELS)</h2>
+        <p style={styles.dbHint}>
+          La Torah est considérée comme un seul long mot. Tu peux chercher un
+          mot en saut régulier (ELS). Exemple : mot = משיח, skip = 7.
+        </p>
+
+        {loading && (
+          <p style={styles.dbHint}>Chargement du texte de la Torah...</p>
+        )}
+        {error && <p style={styles.error}>{error}</p>}
+
+        <div style={styles.dbInputRow}>
+          <input
+            type="text"
+            dir="rtl"
+            value={pattern}
+            onChange={(e) => setPattern(e.target.value)}
+            placeholder="Mot hébreu à chercher (ex : משיח)"
+            style={styles.dbInput}
+          />
+          <input
+            type="number"
+            value={skip}
+            onChange={(e) => setSkip(e.target.value)}
+            placeholder="Skip (ex: 1, 7, -3)"
+            style={{ ...styles.dbInput, maxWidth: "120px" }}
+          />
+          <button
+            type="button"
+            style={styles.buttonSmall}
+            onClick={handleSearchCodes}
+          >
+            Chercher
+          </button>
+        </div>
+
+        {torah && (
+          <p style={styles.dbHint}>
+            Longueur du texte continu :{" "}
+            <strong>{torah.length.toLocaleString("fr-FR")}</strong> lettres.
+          </p>
+        )}
+      </section>
+
+      <section style={styles.dbSection}>
+        <h3>Matches trouvés</h3>
+        {matches.length === 0 ? (
+          <p style={styles.dbHint}>
+            Aucune occurrence encore. Lance une recherche ci-dessus.
+          </p>
+        ) : (
+          <>
+            <p style={styles.dbHint}>
+              {matches.length} occurrences (affichage limité à 200). Clique sur
+              un match pour l’afficher dans la matrice.
+            </p>
+            <div style={styles.dbScrollAreaTall}>
+              {matches.map((idx, i) => (
+                <button
+                  key={idx}
+                  type="button"
+                  onClick={() => setSelectedMatch(idx)}
+                  style={
+                    idx === selectedMatch
+                      ? {
+                          ...styles.matchButton,
+                          ...styles.matchButtonActive,
+                        }
+                      : styles.matchButton
+                  }
+                >
+                  <div
+                    style={{
+                      fontSize: "0.8rem",
+                      color: "#9ca3af",
+                      marginBottom: "0.15rem",
+                    }}
+                  >
+                    #{i + 1} – index de départ : {idx}
+                    {idx === selectedMatch && " (sélectionné)"}
+                  </div>
+                  {renderContext(idx)}
+                </button>
+              ))}
+            </div>
+          </>
+        )}
+      </section>
+
+      <section style={styles.dbSection}>
+        <h3>Vue matrice autour du match sélectionné</h3>
+        <div style={styles.dbInputRow}>
+          <label style={{ fontSize: "0.85rem", color: "#e5e7eb" }}>
+            Largeur de la matrice (colonnes) :
+            <input
+              type="number"
+              value={matrixCols}
+              onChange={(e) => setMatrixCols(e.target.value)}
+              style={{
+                ...styles.dbInput,
+                maxWidth: "120px",
+                marginLeft: "0.5rem",
+              }}
+            />
+          </label>
+        </div>
+        {renderMiniMatrix()}
+      </section>
+
+      <section style={styles.dbSection}>
+        <h3>Extrait de la Torah en continu (début)</h3>
+        <pre style={styles.torahBlock}>
+          {torah ? torah.slice(0, 2000) : "Chargement..."}
+          {torah && torah.length > 2000 && " ..."}
+        </pre>
+      </section>
+    </div>
+  );
+}
+
+//
+// ---------- Composant principal App (3 onglets) ----------
+//
+function App() {
+  const [activeTab, setActiveTab] = useState("calc"); // "calc" | "db" | "codes"
+
+  // --- ÉTAT CALCULATEUR ---
   const [text, setText] = useState("");
   const [method, setMethod] = useState("hechrechi");
   const [result, setResult] = useState(null);
@@ -57,7 +367,7 @@ function App() {
   const [nearestTarget, setNearestTarget] = useState("");
   const [nearestResults, setNearestResults] = useState([]);
 
-  const [verseDetailInfo, setVerseDetailInfo] = useState(null); // { livre, chapitre, verset }
+  const [verseDetailInfo, setVerseDetailInfo] = useState(null);
   const [verseDetail, setVerseDetail] = useState([]);
   const [verseDetailLoading, setVerseDetailLoading] = useState(false);
   const [verseDetailError, setVerseDetailError] = useState("");
@@ -67,8 +377,7 @@ function App() {
     0
   );
 
-  // ---------- Helpers DB ----------
-
+  // Helper DB
   async function fetchJsonDb(url) {
     const res = await fetch(url);
     if (!res.ok) {
@@ -77,7 +386,7 @@ function App() {
     return res.json();
   }
 
-  // Charger les stats dès qu’on va dans l’onglet DB
+  // Charger les stats quand on ouvre l’onglet DB
   useEffect(() => {
     if (activeTab === "db" && !stats) {
       (async () => {
@@ -221,7 +530,6 @@ function App() {
 
   return (
     <>
-      {/* Fond Matrix hébraïque */}
       <MatrixBackground />
 
       <div style={styles.page}>
@@ -251,6 +559,7 @@ function App() {
               >
                 🔢 Calculateur
               </button>
+
               <button
                 type="button"
                 onClick={() => setActiveTab("db")}
@@ -262,13 +571,24 @@ function App() {
               >
                 📜 Analyse Torah DB
               </button>
+
+              <button
+                type="button"
+                onClick={() => setActiveTab("codes")}
+                style={
+                  activeTab === "codes"
+                    ? { ...styles.tabButton, ...styles.tabButtonActive }
+                    : styles.tabButton
+                }
+              >
+                🔍 Codes Torah
+              </button>
             </div>
           </div>
 
-          {/* Onglet Calculateur (ton écran actuel) */}
+          {/* Onglet Calculateur */}
           {activeTab === "calc" && (
             <div style={styles.contentRow}>
-              {/* Colonne gauche : textarea + clavier */}
               <div style={styles.leftColumn}>
                 <form onSubmit={handleSubmit} style={styles.form}>
                   <label style={styles.label}>
@@ -282,7 +602,6 @@ function App() {
                     />
                   </label>
 
-                  {/* Bouton + panneau clavier intégré */}
                   <div style={styles.keyboardWrapper}>
                     <button
                       type="button"
@@ -376,7 +695,6 @@ function App() {
                 {error && <p style={styles.error}>{error}</p>}
               </div>
 
-              {/* Colonne droite : résultat */}
               <div style={styles.rightColumn}>
                 {result ? (
                   <div style={styles.result}>
@@ -433,12 +751,11 @@ function App() {
             </div>
           )}
 
-          {/* Onglet Analyse Torah DB */}
+          {/* Onglet Analyse DB */}
           {activeTab === "db" && (
             <div style={{ marginTop: "1.5rem" }}>
               {dbError && <p style={styles.error}>{dbError}</p>}
 
-              {/* Stats globales */}
               <section style={{ marginBottom: "1.5rem" }}>
                 <h2>Statistiques Torah DB</h2>
                 {stats ? (
@@ -456,7 +773,6 @@ function App() {
               </section>
 
               <div style={styles.contentRow}>
-                {/* Colonne gauche : mots + versets par somme */}
                 <div style={styles.leftColumn}>
                   <section style={styles.dbSection}>
                     <h3>Mots par valeur de guematria</h3>
@@ -574,7 +890,6 @@ function App() {
                   </section>
                 </div>
 
-                {/* Colonne droite : versets proches */}
                 <div style={styles.rightColumn}>
                   <section style={styles.dbSection}>
                     <h3>Versets les plus proches d’une valeur</h3>
@@ -644,7 +959,6 @@ function App() {
                 </div>
               </div>
 
-              {/* Détail du verset sélectionné */}
               {verseDetailInfo && (
                 <section style={{ ...styles.dbSection, marginTop: "1rem" }}>
                   <h3>
@@ -711,6 +1025,9 @@ function App() {
               )}
             </div>
           )}
+
+          {/* Onglet Codes Torah */}
+          {activeTab === "codes" && <TorahCodesTab />}
         </div>
       </div>
     </>
@@ -866,8 +1183,6 @@ const styles = {
     color: "#fca5a5",
     marginTop: "0.25rem",
   },
-
-  // ----- Clavier intégré -----
   keyboardWrapper: {
     marginTop: "0.25rem",
     alignSelf: "flex-start",
@@ -952,8 +1267,6 @@ const styles = {
     color: "#e5e7eb",
     cursor: "pointer",
   },
-
-  // ----- Résultat calculateur -----
   result: {
     background: "#020617",
     borderRadius: "0.75rem",
@@ -1004,8 +1317,6 @@ const styles = {
     fontSize: "0.8rem",
     overflowX: "auto",
   },
-
-  // ----- Sections DB -----
   dbSection: {
     background: "#020617",
     borderRadius: "0.75rem",
@@ -1047,6 +1358,62 @@ const styles = {
     borderTop: "1px solid #1e293b",
     marginTop: "0.5rem",
     paddingTop: "0.4rem",
+  },
+  torahBlock: {
+    maxHeight: "220px",
+    overflowY: "auto",
+    background: "#020617",
+    border: "1px solid #1e293b",
+    borderRadius: "0.5rem",
+    padding: "0.75rem",
+    fontSize: "1.05rem",
+    direction: "rtl",
+    whiteSpace: "normal",
+    lineHeight: 1.6,
+  },
+  matchButton: {
+    width: "100%",
+    textAlign: "left",
+    background: "transparent",
+    border: "1px solid #1f2937",
+    borderRadius: "0.5rem",
+    padding: "0.35rem 0.5rem",
+    marginBottom: "0.35rem",
+    cursor: "pointer",
+    color: "#e5e7eb",
+  },
+  matchButtonActive: {
+    borderColor: "#22c55e",
+    boxShadow: "0 0 0 1px rgba(34,197,94,0.4)",
+  },
+  matrixContainer: {
+    display: "inline-block",
+    border: "1px solid #1f2937",
+    borderRadius: "0.5rem",
+    padding: "0.4rem",
+    background: "#020617",
+    maxHeight: "400px",
+    overflow: "auto",
+  },
+  matrixRow: {
+    display: "flex",
+  },
+  matrixCell: {
+    width: "1.3rem",
+    height: "1.3rem",
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    fontSize: "1rem",
+    borderRadius: "0.2rem",
+    margin: "0.05rem",
+  },
+  matrixCellHighlight: {
+    background: "#facc15",
+    color: "#111827",
+  },
+  matrixCellCenter: {
+    border: "1px solid #22c55e",
   },
 };
 
