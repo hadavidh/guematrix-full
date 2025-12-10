@@ -2,6 +2,10 @@ const express = require("express");
 const cors = require("cors");
 const { Pool } = require("pg");
 
+//DAVID
+let torahCache = null;
+
+
 const app = express();
 app.use(cors());
 app.use(express.json());
@@ -26,6 +30,44 @@ async function query(sql, params = []) {
     client.release();
   }
 }
+
+
+
+//DAVID
+async function getTorahString() {
+  if (torahCache) return torahCache;
+
+  const rows = await query(
+    `
+    SELECT string_agg(t.text, '') AS torah
+    FROM (
+      SELECT COALESCE(w.text_he_no_niqqud, w.text_he) AS text
+      FROM words w
+      JOIN verses v   ON v.id = w.verse_id
+      JOIN chapters c ON c.id = v.chapter_id
+      JOIN books b    ON b.id = c.book_id
+      ORDER BY b.order_index, c.number, v.verse_num, w.word_index
+    ) t
+    `
+  );
+
+  torahCache = rows[0]?.torah || "";
+  return torahCache;
+}
+
+//DAVID
+app.get("/api/torah/raw", async (req, res) => {
+  try {
+    const torah = await getTorahString();
+    res.json({
+      length: torah.length,
+      torah,
+    });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "Erreur lors du chargement du texte de la Torah" });
+  }
+});
 
 // Petit endpoint de test
 app.get("/api/health", async (req, res) => {

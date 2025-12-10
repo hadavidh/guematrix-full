@@ -1,6 +1,8 @@
 import { useState, useEffect } from "react";
 import MatrixBackground from "./MatrixBackground";
 
+
+
 const METHODS = [
   { value: "hechrechi", label: "Mispar Hechrechi" },
   { value: "gadol", label: "Mispar Gadol" },
@@ -19,13 +21,22 @@ const HEBREW_KEYBOARD_ROWS = [
   ["ז", "ס", "ב", "ה", "נ", "מ", "צ", "ת", "ץ"],
 ];
 
-const API_BASE_DB = "http://localhost:3001/api"; // backend DB Node/Express
+// mapping nom hébreu -> code livre (comme dans la DB)
+const BOOK_NAME_TO_CODE = {
+  "בראשית": "BERESHIT",
+  "שמות": "SHEMOT",
+  "ויקרא": "VAYIKRA",
+  "במדבר": "BAMIDBAR",
+  "דברים": "DEVARIM",
+};
+
+const API_BASE_DB = "http://localhost:3001/api";
 
 function App() {
-  // Onglets
-  const [activeTab, setActiveTab] = useState("calc"); // 'calc' ou 'db'
+  // Onglet actif : calculateur ou Analyse DB
+  const [activeTab, setActiveTab] = useState("calc"); // "calc" | "db"
 
-  // --- ÉTAT CALCULATEUR EXISTANT ---
+  // --- ÉTAT CALCULATEUR (ton code existant) ---
   const [text, setText] = useState("");
   const [method, setMethod] = useState("hechrechi");
   const [result, setResult] = useState(null);
@@ -33,7 +44,7 @@ function App() {
   const [error, setError] = useState("");
   const [showKeyboard, setShowKeyboard] = useState(false);
 
-  // --- ÉTAT ANALYSE DB / TORAH ---
+  // --- ÉTAT ANALYSE DB ---
   const [dbError, setDbError] = useState("");
   const [stats, setStats] = useState(null);
 
@@ -46,16 +57,27 @@ function App() {
   const [nearestTarget, setNearestTarget] = useState("");
   const [nearestResults, setNearestResults] = useState([]);
 
-  // Helper pour fetch DB
-  const fetchJsonDb = async (url) => {
+  const [verseDetailInfo, setVerseDetailInfo] = useState(null); // { livre, chapitre, verset }
+  const [verseDetail, setVerseDetail] = useState([]);
+  const [verseDetailLoading, setVerseDetailLoading] = useState(false);
+  const [verseDetailError, setVerseDetailError] = useState("");
+
+  const verseTotal = verseDetail.reduce(
+    (sum, w) => sum + (w.gematria_standard || 0),
+    0
+  );
+
+  // ---------- Helpers DB ----------
+
+  async function fetchJsonDb(url) {
     const res = await fetch(url);
     if (!res.ok) {
       throw new Error(`Erreur API DB : ${res.status}`);
     }
     return res.json();
-  };
+  }
 
-  // Charger automatiquement les stats quand on ouvre l’onglet DB
+  // Charger les stats dès qu’on va dans l’onglet DB
   useEffect(() => {
     if (activeTab === "db" && !stats) {
       (async () => {
@@ -71,7 +93,7 @@ function App() {
     }
   }, [activeTab, stats]);
 
-  // ---------- HANDLERS CALCULATEUR EXISTANT ----------
+  // ---------- Handlers calculateur ----------
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -120,7 +142,7 @@ function App() {
     setText((prev) => prev.slice(0, -1));
   };
 
-  // ---------- HANDLERS ANALYSE DB / TORAH ----------
+  // ---------- Handlers Analyse DB ----------
 
   const handleSearchWordsByValue = async () => {
     if (!wordValue) return;
@@ -167,6 +189,34 @@ function App() {
     }
   };
 
+  const handleShowVerseDetails = async (livre, chapitre, verset) => {
+    const bookCode = BOOK_NAME_TO_CODE[livre];
+    if (!bookCode) {
+      setVerseDetailError(
+        `Impossible de trouver le code du livre pour ${livre}`
+      );
+      return;
+    }
+
+    try {
+      setVerseDetailError("");
+      setVerseDetail([]);
+      setVerseDetailInfo({ livre, chapitre, verset });
+      setVerseDetailLoading(true);
+
+      const url = `${API_BASE_DB}/verse?book=${encodeURIComponent(
+        bookCode
+      )}&chapter=${chapitre}&verse=${verset}`;
+      const data = await fetchJsonDb(url);
+      setVerseDetail(data);
+    } catch (e) {
+      console.error(e);
+      setVerseDetailError("Erreur lors du chargement du détail du verset.");
+    } finally {
+      setVerseDetailLoading(false);
+    }
+  };
+
   // ---------- RENDER ----------
 
   return (
@@ -176,6 +226,7 @@ function App() {
 
       <div style={styles.page}>
         <div style={styles.card}>
+          {/* Header + onglets */}
           <div style={styles.headerRow}>
             <div>
               <h1 style={styles.title}>GueMatriX</h1>
@@ -188,7 +239,6 @@ function App() {
               </p>
             </div>
 
-            {/* Onglets */}
             <div style={styles.tabsRow}>
               <button
                 type="button"
@@ -215,7 +265,7 @@ function App() {
             </div>
           </div>
 
-          {/* Contenu de l’onglet CALCULATEUR */}
+          {/* Onglet Calculateur (ton écran actuel) */}
           {activeTab === "calc" && (
             <div style={styles.contentRow}>
               {/* Colonne gauche : textarea + clavier */}
@@ -383,7 +433,7 @@ function App() {
             </div>
           )}
 
-          {/* Contenu de l’onglet ANALYSE DB / TORAH */}
+          {/* Onglet Analyse Torah DB */}
           {activeTab === "db" && (
             <div style={{ marginTop: "1.5rem" }}>
               {dbError && <p style={styles.error}>{dbError}</p>}
@@ -406,7 +456,7 @@ function App() {
               </section>
 
               <div style={styles.contentRow}>
-                {/* Colonne gauche : recherches mots / versets */}
+                {/* Colonne gauche : mots + versets par somme */}
                 <div style={styles.leftColumn}>
                   <section style={styles.dbSection}>
                     <h3>Mots par valeur de guematria</h3>
@@ -489,6 +539,7 @@ function App() {
                             <th style={styles.th}>Chap.</th>
                             <th style={styles.th}>Verset</th>
                             <th style={styles.th}>Somme</th>
+                            <th style={styles.th}>Détails</th>
                           </tr>
                         </thead>
                         <tbody>
@@ -500,6 +551,21 @@ function App() {
                               <td style={styles.tdCenter}>{row.chapitre}</td>
                               <td style={styles.tdCenter}>{row.verset}</td>
                               <td style={styles.tdCenter}>{row.somme}</td>
+                              <td style={styles.tdCenter}>
+                                <button
+                                  type="button"
+                                  style={styles.buttonTiny}
+                                  onClick={() =>
+                                    handleShowVerseDetails(
+                                      row.livre,
+                                      row.chapitre,
+                                      row.verset
+                                    )
+                                  }
+                                >
+                                  🔍
+                                </button>
+                              </td>
                             </tr>
                           ))}
                         </tbody>
@@ -508,13 +574,12 @@ function App() {
                   </section>
                 </div>
 
-                {/* Colonne droite : versets proches d’une valeur */}
+                {/* Colonne droite : versets proches */}
                 <div style={styles.rightColumn}>
                   <section style={styles.dbSection}>
                     <h3>Versets les plus proches d’une valeur</h3>
                     <p style={styles.dbHint}>
-                      Exemple : 770 → montre les versets dont la somme est la
-                      plus proche de 770.
+                      Exemple : 770 → versets dont la somme est la plus proche.
                     </p>
                     <div style={styles.dbInputRow}>
                       <input
@@ -541,7 +606,8 @@ function App() {
                             <th style={styles.th}>Chap.</th>
                             <th style={styles.th}>Verset</th>
                             <th style={styles.th}>Somme</th>
-                            <th style={styles.th}>Distance</th>
+                            <th style={styles.th}>Dist.</th>
+                            <th style={styles.th}>Détails</th>
                           </tr>
                         </thead>
                         <tbody>
@@ -554,6 +620,21 @@ function App() {
                               <td style={styles.tdCenter}>{row.verset}</td>
                               <td style={styles.tdCenter}>{row.somme}</td>
                               <td style={styles.tdCenter}>{row.distance}</td>
+                              <td style={styles.tdCenter}>
+                                <button
+                                  type="button"
+                                  style={styles.buttonTiny}
+                                  onClick={() =>
+                                    handleShowVerseDetails(
+                                      row.livre,
+                                      row.chapitre,
+                                      row.verset
+                                    )
+                                  }
+                                >
+                                  🔍
+                                </button>
+                              </td>
                             </tr>
                           ))}
                         </tbody>
@@ -562,6 +643,72 @@ function App() {
                   </section>
                 </div>
               </div>
+
+              {/* Détail du verset sélectionné */}
+              {verseDetailInfo && (
+                <section style={{ ...styles.dbSection, marginTop: "1rem" }}>
+                  <h3>
+                    Détail du verset : {verseDetailInfo.livre}{" "}
+                    {verseDetailInfo.chapitre}:{verseDetailInfo.verset}
+                  </h3>
+                  {verseDetailLoading && (
+                    <p style={styles.dbHint}>Chargement du verset...</p>
+                  )}
+                  {verseDetailError && (
+                    <p style={styles.error}>{verseDetailError}</p>
+                  )}
+                  {!verseDetailLoading && !verseDetailError && (
+                    <>
+                      <p style={styles.dbHint}>
+                        Nombre de mots : {verseDetail.length} – Somme totale :{" "}
+                        <strong>{verseTotal}</strong>
+                      </p>
+                      <div style={styles.dbScrollAreaTall}>
+                        <table style={styles.table}>
+                          <thead>
+                            <tr>
+                              <th style={styles.th}>#</th>
+                              <th style={styles.th}>Mot</th>
+                              <th style={styles.th}>Mot (sans niqqoud)</th>
+                              <th style={styles.th}>Valeur</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {verseDetail.map((w, idx) => (
+                              <tr key={idx}>
+                                <td style={styles.tdCenter}>
+                                  {w.index_mot || w.word_index}
+                                </td>
+                                <td
+                                  dir="rtl"
+                                  style={{
+                                    ...styles.tdCenter,
+                                    fontSize: "1.2rem",
+                                  }}
+                                >
+                                  {w.text_he}
+                                </td>
+                                <td
+                                  dir="rtl"
+                                  style={{
+                                    ...styles.tdCenter,
+                                    fontSize: "1rem",
+                                  }}
+                                >
+                                  {w.text_he_no_niqqud}
+                                </td>
+                                <td style={styles.tdCenter}>
+                                  {w.gematria_standard}
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    </>
+                  )}
+                </section>
+              )}
             </div>
           )}
         </div>
@@ -704,6 +851,16 @@ const styles = {
     color: "#022c22",
     fontWeight: "600",
     whiteSpace: "nowrap",
+  },
+  buttonTiny: {
+    padding: "0.25rem 0.5rem",
+    fontSize: "0.8rem",
+    borderRadius: "999px",
+    border: "none",
+    cursor: "pointer",
+    background: "#22c55e",
+    color: "#022c22",
+    fontWeight: 600,
   },
   error: {
     color: "#fca5a5",
@@ -879,6 +1036,13 @@ const styles = {
   },
   dbScrollArea: {
     maxHeight: "220px",
+    overflowY: "auto",
+    borderTop: "1px solid #1e293b",
+    marginTop: "0.5rem",
+    paddingTop: "0.4rem",
+  },
+  dbScrollAreaTall: {
+    maxHeight: "260px",
     overflowY: "auto",
     borderTop: "1px solid #1e293b",
     marginTop: "0.5rem",
