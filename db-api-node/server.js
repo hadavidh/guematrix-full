@@ -136,6 +136,7 @@ app.get("/api/torah/raw", async (req, res) => {
 
 // Recherche d'un mot dans toute la Torah
 // GET /api/search/word?text=משה
+// GET /api/search/word?text=משה
 app.get("/api/search/word", async (req, res) => {
   try {
     const rawText = (req.query.text || "").trim();
@@ -144,7 +145,7 @@ app.get("/api/search/word", async (req, res) => {
       return res.status(400).json({ error: "Paramètre 'text' requis" });
     }
 
-    // Nettoyage simple : on garde uniquement les lettres hébraïques (א à ת)
+    // Nettoyage : on garde uniquement les lettres hébraïques
     const cleanText = rawText
       .split("")
       .filter((ch) => ch >= "\u05D0" && ch <= "\u05EA")
@@ -157,30 +158,43 @@ app.get("/api/search/word", async (req, res) => {
       });
     }
 
-    // ⚠️ Adapte les noms de tables si besoin
-    const { rows } = await pool.query(
-      `
+    const sql = `
       SELECT
-        b.book_name_he,
-        b.book_code,
-        v.chapter_number,
-        v.verse_number,
-        v.text_he       AS verse_text_he,
-        w.text_he       AS word_text_he,
-        w.text_he_no_niqqud AS word_text_clean,
+        b.name_he          AS book_name_he,
+        b.code             AS book_code,
+        b.order_index      AS book_order,
+        c.number           AS chapter_number,
+        v.verse_num        AS verse_number,
+
+        -- texte complet du verset
+        (
+          SELECT string_agg(w2.text_he, ' ' ORDER BY w2.word_index)
+          FROM words w2
+          WHERE w2.verse_id = v.id
+        ) AS verse_text_he,
+
+        -- le mot précis trouvé
+        w.text_he            AS word_text_he,
+        w.text_he_no_niqqud  AS word_text_clean,
         w.word_index,
         w.gematria_standard,
-        vs.verse_gematria
-      FROM torah_word w
-      JOIN torah_verse v ON v.id = w.verse_id
-      JOIN torah_book  b ON b.id = v.book_id
-      LEFT JOIN verse_gematria_sum vs ON vs.verse_id = v.id
+
+        -- somme du verset (recalculée pour éviter les soucis de vue)
+        (
+          SELECT SUM(w3.gematria_standard)
+          FROM words w3
+          WHERE w3.verse_id = v.id
+        ) AS verse_gematria
+      FROM words w
+      JOIN verses   v ON v.id = w.verse_id
+      JOIN chapters c ON c.id = v.chapter_id
+      JOIN books    b ON b.id = c.book_id
       WHERE w.text_he_no_niqqud = $1
-      ORDER BY b.book_order, v.chapter_number, v.verse_number, w.word_index
+      ORDER BY b.order_index, c.number, v.verse_num, w.word_index
       LIMIT 500
-      `,
-      [cleanText]
-    );
+    `;
+
+    const { rows } = await pool.query(sql, [cleanText]);
 
     res.json({
       query: rawText,
@@ -189,7 +203,7 @@ app.get("/api/search/word", async (req, res) => {
       results: rows,
     });
   } catch (err) {
-    console.error(err);
+    console.error("ERREUR /api/search/word :", err);
     res
       .status(500)
       .json({ error: "Erreur lors de la recherche du mot dans la Torah" });
@@ -208,27 +222,29 @@ app.get("/api/health", async (req, res) => {
   }
 });
 
-// 1) Stats globales
+/// GET /api/stats
 app.get("/api/stats", async (req, res) => {
   try {
-    const [books, chapters, verses, words] = await Promise.all([
-      query("SELECT COUNT(*) FROM books"),
-      query("SELECT COUNT(*) FROM chapters"),
-      query("SELECT COUNT(*) FROM verses"),
-      query("SELECT COUNT(*) FROM words"),
-    ]);
+    // On fait 4 requêtes simples, l'une après l'autre (plus facile à débuguer)
+    const booksRes = await pool.query("SELECT COUNT(*) AS c FROM books");
+    const chaptersRes = await pool.query("SELECT COUNT(*) AS c FROM chapters");
+    const versesRes = await pool.query("SELECT COUNT(*) AS c FROM verses");
+    const wordsRes = await pool.query("SELECT COUNT(*) AS c FROM words");
 
-    res.json({
-      books: Number(books[0].count),
-      chapters: Number(chapters[0].count),
-      verses: Number(verses[0].count),
-      words: Number(words[0].count),
-    });
+    const books = parseInt(booksRes.rows[0].c, 10);
+    const chapters = parseInt(chaptersRes.rows[0].c, 10);
+    const verses = parseInt(versesRes.rows[0].c, 10);
+    const words = parseInt(wordsRes.rows[0].c, 10);
+
+    res.json({ books, chapters, verses, words });
   } catch (err) {
-    console.error(err);
-    res.status(500).json({ error: "Erreur stats" });
+    console.error("ERREUR /api/stats :", err);
+    res
+      .status(500)
+      .json({ error: "Erreur lors de la récupération des statistiques" });
   }
 });
+
 
 // 2) Mots par valeur de guematria
 app.get("/api/words/by-gematria", async (req, res) => {

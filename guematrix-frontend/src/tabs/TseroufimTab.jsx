@@ -3,6 +3,27 @@ import { useState } from "react";
 const API_SPRING = "http://localhost:8085/guematrix/gematria"; // backend Java
 const API_DB = "http://localhost:3001/api"; // backend Node (Postgres)
 
+// Utilitaire pour surligner le mot dans le verset
+function highlightWordInVerse(verseText, word) {
+  if (!verseText || !word) return verseText;
+  const safeWord = word.replace(/[-/\\^$*+?.()|[\]{}]/g, "\\$&");
+  const regex = new RegExp(safeWord, "g");
+  const parts = verseText.split(regex);
+
+  const result = [];
+  for (let i = 0; i < parts.length; i++) {
+    result.push(parts[i]);
+    if (i < parts.length - 1) {
+      result.push(
+        <span key={i} style={{ backgroundColor: "#22c55e33" }}>
+          {word}
+        </span>
+      );
+    }
+  }
+  return result;
+}
+
 function TseroufimTab({ styles }) {
   const [text, setText] = useState("");
   const [result, setResult] = useState(null);
@@ -14,12 +35,24 @@ function TseroufimTab({ styles }) {
   const [dbCheckError, setDbCheckError] = useState("");
   const [dbChecking, setDbChecking] = useState(false);
 
+  // mot sélectionné + versets
+  const [selectedWord, setSelectedWord] = useState(null);
+  const [occurrences, setOccurrences] = useState([]);
+  const [occLoading, setOccLoading] = useState(false);
+  const [occError, setOccError] = useState("");
+
   const handleSubmit = async (e) => {
     e.preventDefault();
     setError("");
     setResult(null);
     setWordInfos([]);
     setDbCheckError("");
+
+    // reset des occurrences de l’ancien mot
+    setSelectedWord(null);
+    setOccurrences([]);
+    setOccError("");
+    setOccLoading(false);
 
     const value = text.trim();
     if (!value) {
@@ -54,6 +87,36 @@ function TseroufimTab({ styles }) {
     }
   };
 
+  // Charge tous les versets où ce mot apparaît
+// Charge tous les versets où ce mot apparaît
+const loadOccurrences = async (word) => {
+  // on met à jour tout de suite le mot sélectionné
+  setSelectedWord(word);
+  setOccLoading(true);
+  setOccError("");
+  setOccurrences([]);
+
+  try {
+    const params = new URLSearchParams({ word });
+    const res = await fetch(
+      `${API_DB}/tseroufim/occurrences?${params.toString()}`
+    );
+
+    if (!res.ok) {
+      throw new Error(`HTTP ${res.status}`);
+    }
+
+    const data = await res.json();
+    setOccurrences(data.hits || []);
+  } catch (err) {
+    console.error(err);
+    setOccError("Erreur lors du chargement des occurrences dans la Torah.");
+  } finally {
+    setOccLoading(false);
+  }
+};
+
+  // Vérifie dans la DB si chaque tserouf existe dans la Torah
   const checkWordsInDb = async (wheel) => {
     try {
       setDbChecking(true);
@@ -146,7 +209,97 @@ function TseroufimTab({ styles }) {
             wheel={wheel}
             wordInfos={wordInfos}
             dbChecking={dbChecking}
+            onWordClick={loadOccurrences}
           />
+
+          {selectedWord && (
+            <div
+              style={{
+                marginTop: "1.5rem",
+                width: "100%",
+                maxWidth: "640px",
+              }}
+            >
+              <h3 style={{ marginBottom: "0.5rem" }}>
+                Occurrences dans la Torah pour{" "}
+                <span
+                  dir="rtl"
+                  style={{ fontWeight: 700, fontSize: "1.1rem" }}
+                >
+                  {selectedWord}
+                </span>
+              </h3>
+
+              {occLoading && (
+                <p
+                  style={{
+                    color: "#9ca3af",
+                    fontSize: "0.85rem",
+                  }}
+                >
+                  Chargement des versets...
+                </p>
+              )}
+
+              {occError && <p style={styles.error}>{occError}</p>}
+
+              {!occLoading &&
+                !occError &&
+                occurrences.length === 0 && (
+                  <p
+                    style={{
+                      color: "#9ca3af",
+                      fontSize: "0.85rem",
+                    }}
+                  >
+                    Aucune occurrence trouvée dans la base.
+                  </p>
+                )}
+
+              {!occLoading && occurrences.length > 0 && (
+                <div
+                  style={{
+                    borderRadius: "0.75rem",
+                    border: "1px solid #1f2937",
+                    backgroundColor: "#020617",
+                    padding: "0.75rem 1rem",
+                    maxHeight: "260px",
+                    overflowY: "auto",
+                  }}
+                >
+                  {occurrences.map((occ, idx) => (
+                    <div
+                      key={idx}
+                      style={{
+                        borderBottom:
+                          idx === occurrences.length - 1
+                            ? "none"
+                            : "1px solid #1f2937",
+                        padding: "0.35rem 0",
+                      }}
+                    >
+                      <div
+                        style={{
+                          fontSize: "0.85rem",
+                          color: "#9ca3af",
+                          marginBottom: "0.15rem",
+                        }}
+                      >
+                        {occ.book_name_he} {occ.chapter_number}:
+                        {occ.verse_number}
+                      </div>
+                      <div dir="rtl" style={{ fontSize: "1rem" }}>
+                        {highlightWordInVerse(
+                          occ.verse_text,
+                          selectedWord
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
         </div>
       )}
     </div>
@@ -155,7 +308,13 @@ function TseroufimTab({ styles }) {
 
 // --- composant interne pour la roue ---
 
-function TseroufimWheel({ baseWord, wheel, wordInfos, dbChecking }) {
+function TseroufimWheel({
+  baseWord,
+  wheel,
+  wordInfos,
+  dbChecking,
+  onWordClick,
+}) {
   const radius = 130; // rayon du cercle en px
 
   const legendStyle = {
@@ -175,7 +334,9 @@ function TseroufimWheel({ baseWord, wheel, wordInfos, dbChecking }) {
           <div dir="rtl" style={{ fontSize: "1.3rem", fontWeight: 700 }}>
             {baseWord}
           </div>
-          <div style={{ fontSize: "0.8rem", color: "#9ca3af" }}>mot de base</div>
+          <div style={{ fontSize: "0.8rem", color: "#9ca3af" }}>
+            mot de base
+          </div>
         </div>
 
         {/* éléments sur le cercle */}
@@ -188,7 +349,9 @@ function TseroufimWheel({ baseWord, wheel, wordInfos, dbChecking }) {
 
           const isLast = index === wheel.length - 1;
 
-          const info = Array.isArray(wordInfos) ? wordInfos[index] : null;
+          const info = Array.isArray(wordInfos)
+            ? wordInfos[index]
+            : null;
           const hasTorah = info && info.torahOccurrences > 0;
 
           // Couleurs :
@@ -218,12 +381,14 @@ function TseroufimWheel({ baseWord, wheel, wordInfos, dbChecking }) {
                 backgroundColor,
                 color,
                 borderColor,
+                cursor: "pointer",
               }}
               title={
                 hasTorah
                   ? `Existe dans la Torah (${info.torahOccurrences} occurrence(s))`
                   : "Pas trouvé dans la base Torah"
               }
+              onClick={() => onWordClick && onWordClick(w)}
             >
               <span dir="rtl">{w}</span>
               <span style={wheelStyles.itemIndex}>{index + 1}</span>
@@ -233,7 +398,13 @@ function TseroufimWheel({ baseWord, wheel, wordInfos, dbChecking }) {
       </div>
 
       {dbChecking && (
-        <p style={{ color: "#9ca3af", fontSize: "0.8rem", marginTop: "0.4rem" }}>
+        <p
+          style={{
+            color: "#9ca3af",
+            fontSize: "0.8rem",
+            marginTop: "0.4rem",
+          }}
+        >
           Vérification dans la base Torah...
         </p>
       )}
@@ -243,7 +414,9 @@ function TseroufimWheel({ baseWord, wheel, wordInfos, dbChecking }) {
         <h3 style={{ marginBottom: "0.4rem" }}>Liste des 22 tseroufim</h3>
         <div style={wheelStyles.listScroll}>
           {wheel.map((w, i) => {
-            const info = Array.isArray(wordInfos) ? wordInfos[i] : null;
+            const info = Array.isArray(wordInfos)
+              ? wordInfos[i]
+              : null;
             const hasTorah = info && info.torahOccurrences > 0;
 
             return (
@@ -323,14 +496,14 @@ const wheelStyles = {
     alignItems: "center",
     gap: "1rem",
   },
-  circle: {
-    position: "relative",
-    width: "320px",
-    height: "320px",
-    borderRadius: "50%",
-    border: "1px dashed #1f2937",
-    background: "radial-gradient(circle, #020617 0%, #020617 60%, #020617 100%)",
-    overflow: "visible",
+circle: {
+  position: "relative",
+  width: "320px",
+  height: "320px",
+  borderRadius: "50%",
+  border: "1px dashed #1f2937",
+  background: "radial-gradient(circle, #020617 0%, #020617 60%, #020617 100%)",
+  overflow: "visible",
   },
   center: {
     position: "absolute",
