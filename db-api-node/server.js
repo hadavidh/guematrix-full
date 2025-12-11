@@ -69,6 +69,70 @@ app.get("/api/torah/raw", async (req, res) => {
   }
 });
 
+
+// Recherche d'un mot dans toute la Torah
+// GET /api/search/word?text=משה
+app.get("/api/search/word", async (req, res) => {
+  try {
+    const rawText = (req.query.text || "").trim();
+
+    if (!rawText) {
+      return res.status(400).json({ error: "Paramètre 'text' requis" });
+    }
+
+    // Nettoyage simple : on garde uniquement les lettres hébraïques (א à ת)
+    const cleanText = rawText
+      .split("")
+      .filter((ch) => ch >= "\u05D0" && ch <= "\u05EA")
+      .join("");
+
+    if (!cleanText) {
+      return res.status(400).json({
+        error:
+          "Après nettoyage, le mot est vide. Utilise uniquement des lettres hébraïques.",
+      });
+    }
+
+    // ⚠️ Adapte les noms de tables si besoin
+    const { rows } = await pool.query(
+      `
+      SELECT
+        b.book_name_he,
+        b.book_code,
+        v.chapter_number,
+        v.verse_number,
+        v.text_he       AS verse_text_he,
+        w.text_he       AS word_text_he,
+        w.text_he_no_niqqud AS word_text_clean,
+        w.word_index,
+        w.gematria_standard,
+        vs.verse_gematria
+      FROM torah_word w
+      JOIN torah_verse v ON v.id = w.verse_id
+      JOIN torah_book  b ON b.id = v.book_id
+      LEFT JOIN verse_gematria_sum vs ON vs.verse_id = v.id
+      WHERE w.text_he_no_niqqud = $1
+      ORDER BY b.book_order, v.chapter_number, v.verse_number, w.word_index
+      LIMIT 500
+      `,
+      [cleanText]
+    );
+
+    res.json({
+      query: rawText,
+      cleaned: cleanText,
+      count: rows.length,
+      results: rows,
+    });
+  } catch (err) {
+    console.error(err);
+    res
+      .status(500)
+      .json({ error: "Erreur lors de la recherche du mot dans la Torah" });
+  }
+});
+
+
 // Petit endpoint de test
 app.get("/api/health", async (req, res) => {
   try {
