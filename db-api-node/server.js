@@ -31,6 +31,70 @@ async function query(sql, params = []) {
   }
 }
 
+//DAVID
+function cleanHebrewWord(raw) {
+  return (raw || "")
+    // enlever niqqoud + signes de cantillation
+    .replace(/[\u0591-\u05C7]/g, "")
+    // ne garder que les lettres א à ת
+    .replace(/[^א-ת]/g, "")
+    .trim();
+}
+
+//DAVID
+// Vérifier une liste de mots tseroufim dans la Torah
+// POST /api/tseroufim/check-words
+// body: { "words": ["בהן","גוס", ...] }
+app.post("/api/tseroufim/check-words", async (req, res) => {
+  try {
+    const list = Array.isArray(req.body?.words) ? req.body.words : [];
+
+    // Nettoyage + dédoublonnage
+    const cleanedList = list
+      .map(cleanHebrewWord)
+      .filter((w, idx, arr) => w && arr.indexOf(w) === idx);
+
+    if (cleanedList.length === 0) {
+      return res.json({ results: [] });
+    }
+
+    // Récupérer le nombre d'occurrences de chaque mot dans torah_word
+    const torahRes = await pool.query(
+       `
+         SELECT text_he_no_niqqud AS word, COUNT(*) AS count
+         FROM words
+         WHERE text_he_no_niqqud = ANY($1)
+         GROUP BY text_he_no_niqqud
+  `,
+  [cleanedList]
+ 
+    );
+
+    const occByWord = {};
+    for (const row of torahRes.rows) {
+      occByWord[row.word] = Number(row.count || 0);
+    }
+
+    // Reconstituer un tableau aligné avec la liste d'origine
+    const results = list.map((original) => {
+      const cleaned = cleanHebrewWord(original);
+      const count = cleaned ? occByWord[cleaned] || 0 : 0;
+      return {
+        original,
+        cleaned,
+        torahOccurrences: count,
+      };
+    });
+
+    res.json({ results });
+  } catch (err) {
+    console.error(err);
+    res
+      .status(500)
+      .json({ error: "Erreur lors de la vérification des mots de tseroufim" });
+  }
+});
+
 
 
 //DAVID

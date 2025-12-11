@@ -9,6 +9,7 @@ const METHODS = [
   { value: "albam", label: "Albam" },
   { value: "milui", label: "Milouï (Guematria Milouï)" },
   { value: "hakadmi", label: "Hakadmi (préfixes alphabétiques)" },
+  { value: "tseroufim", label: "roue permutation aboulafia" },
 ];
 
 const HEBREW_KEYBOARD_ROWS = [

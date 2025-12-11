@@ -3,6 +3,8 @@ import MatrixBackground from "./MatrixBackground";
 import CalculatorTab from "./tabs/CalculatorTab";
 import TorahDbTab from "./tabs/TorahDbTab";
 import TorahCodesTab from "./tabs/TorahCodesTab";
+import TseroufimTab from "./tabs/TseroufimTab";
+
 
 function App() {
   const [activeTab, setActiveTab] = useState("calc"); // "calc" | "db" | "codes"
@@ -62,6 +64,18 @@ function App() {
               >
                 🔍 Codes Torah
               </button>
+              <button
+                type="button"
+                onClick={() => setActiveTab("tseroufim")}
+                style={
+                  activeTab === "tseroufim"
+                    ? { ...styles.tabButton, ...styles.tabButtonActive }
+                     : styles.tabButton
+                 }
+>
+                   🌀 Tseroufim
+                   </button>
+
             </div>
           </div>
 
@@ -69,6 +83,8 @@ function App() {
           {activeTab === "calc" && <CalculatorTab styles={styles} />}
           {activeTab === "db" && <TorahDbTab styles={styles} />}
           {activeTab === "codes" && <TorahCodesTab styles={styles} />}
+          {activeTab === "tseroufim" && <TseroufimTab styles={styles} />}
+
         </div>
       </div>
     </>
