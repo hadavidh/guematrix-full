@@ -1,0 +1,54 @@
+version: "3.9"
+
+services:
+  postgres:
+    image: postgres:16
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: torahpass
+      POSTGRES_DB: torah_gematria
+    ports:
+      - "5432:5432"
+    volumes:
+      # Données persistées sur ton disque (pour pas tout perdre à chaque fois)
+      - ./docker/postgres/data:/var/lib/postgresql/data
+      # Scripts d'initialisation (ton dump est ici)
+      - ./docker/postgres/init:/docker-entrypoint-initdb.d
+
+  db-api-node:
+      build: ./db-api-node
+      depends_on:
+       - postgres
+      environment:
+        DB_HOST: postgres
+        DB_PORT: 5432
+        DB_USER: postgres
+        DB_PASSWORD: torahpass
+        DB_NAME: torah_gematria
+      ports:
+      - "3001:3001"
+
+  guematrix-backend:
+      build: ./guematrixbackend
+      restart: unless-stopped
+      depends_on:
+       - postgres
+      environment:
+        DB_HOST: postgres
+        DB_PORT: 5432
+        DB_USER: postgres
+        DB_PASSWORD: torahpass
+        DB_NAME: torah_gematria
+      ports:
+      - "8085:8085"
+
+  guematrix-frontend:
+    build: ./guematrix-frontend
+    restart: unless-stopped
+    depends_on:
+      - db-api-node
+      - guematrix-backend
+    ports:
+      - "5173:80"
+
