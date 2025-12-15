@@ -88,33 +88,29 @@ function TseroufimTab({ styles }) {
   };
 
   // Charge tous les versets où ce mot apparaît
-// Charge tous les versets où ce mot apparaît
-const loadOccurrences = async (word) => {
-  // on met à jour tout de suite le mot sélectionné
-  setSelectedWord(word);
-  setOccLoading(true);
-  setOccError("");
-  setOccurrences([]);
+  const loadOccurrences = async (word) => {
+    setSelectedWord(word);
+    setOccLoading(true);
+    setOccError("");
+    setOccurrences([]);
 
-  try {
-    const params = new URLSearchParams({ word });
-    const res = await fetch(
-      `${API_DB}/tseroufim/occurrences?${params.toString()}`
-    );
+    try {
+      const params = new URLSearchParams({ word });
+      const res = await fetch(`${API_DB}/tseroufim/occurrences?${params.toString()}`);
 
-    if (!res.ok) {
-      throw new Error(`HTTP ${res.status}`);
+      if (!res.ok) {
+        throw new Error(`HTTP ${res.status}`);
+      }
+
+      const data = await res.json();
+      setOccurrences(data.hits || []);
+    } catch (err) {
+      console.error(err);
+      setOccError("Erreur lors du chargement des occurrences dans la Torah.");
+    } finally {
+      setOccLoading(false);
     }
-
-    const data = await res.json();
-    setOccurrences(data.hits || []);
-  } catch (err) {
-    console.error(err);
-    setOccError("Erreur lors du chargement des occurrences dans la Torah.");
-  } finally {
-    setOccLoading(false);
-  }
-};
+  };
 
   // Vérifie dans la DB si chaque tserouf existe dans la Torah
   const checkWordsInDb = async (wheel) => {
@@ -157,8 +153,7 @@ const loadOccurrences = async (word) => {
         </span>
         ) et on affichera la roue des 22 tseroufim autour d’un cercle.
         <br />
-        Les mots qui existent <strong>dans la Torah</strong> seront mis en
-        évidence.
+        Les mots qui existent <strong>dans la Torah</strong> seront mis en évidence.
       </p>
 
       <form
@@ -178,9 +173,7 @@ const loadOccurrences = async (word) => {
       </form>
 
       {error && <p style={styles.error}>{error}</p>}
-      {dbCheckError && (
-        <p style={{ ...styles.error, marginTop: "0.25rem" }}>{dbCheckError}</p>
-      )}
+      {dbCheckError && <p style={{ ...styles.error, marginTop: "0.25rem" }}>{dbCheckError}</p>}
 
       {!result && !error && (
         <p style={{ color: "#9ca3af", fontSize: "0.9rem" }}>
@@ -210,6 +203,7 @@ const loadOccurrences = async (word) => {
             wordInfos={wordInfos}
             dbChecking={dbChecking}
             onWordClick={loadOccurrences}
+            selectedWord={selectedWord}
           />
 
           {selectedWord && (
@@ -222,39 +216,22 @@ const loadOccurrences = async (word) => {
             >
               <h3 style={{ marginBottom: "0.5rem" }}>
                 Occurrences dans la Torah pour{" "}
-                <span
-                  dir="rtl"
-                  style={{ fontWeight: 700, fontSize: "1.1rem" }}
-                >
+                <span dir="rtl" style={{ fontWeight: 700, fontSize: "1.1rem" }}>
                   {selectedWord}
                 </span>
               </h3>
 
               {occLoading && (
-                <p
-                  style={{
-                    color: "#9ca3af",
-                    fontSize: "0.85rem",
-                  }}
-                >
-                  Chargement des versets...
-                </p>
+                <p style={{ color: "#9ca3af", fontSize: "0.85rem" }}>Chargement des versets...</p>
               )}
 
               {occError && <p style={styles.error}>{occError}</p>}
 
-              {!occLoading &&
-                !occError &&
-                occurrences.length === 0 && (
-                  <p
-                    style={{
-                      color: "#9ca3af",
-                      fontSize: "0.85rem",
-                    }}
-                  >
-                    Aucune occurrence trouvée dans la base.
-                  </p>
-                )}
+              {!occLoading && !occError && occurrences.length === 0 && (
+                <p style={{ color: "#9ca3af", fontSize: "0.85rem" }}>
+                  Aucune occurrence trouvée dans la base.
+                </p>
+              )}
 
               {!occLoading && occurrences.length > 0 && (
                 <div
@@ -271,10 +248,7 @@ const loadOccurrences = async (word) => {
                     <div
                       key={idx}
                       style={{
-                        borderBottom:
-                          idx === occurrences.length - 1
-                            ? "none"
-                            : "1px solid #1f2937",
+                        borderBottom: idx === occurrences.length - 1 ? "none" : "1px solid #1f2937",
                         padding: "0.35rem 0",
                       }}
                     >
@@ -285,14 +259,10 @@ const loadOccurrences = async (word) => {
                           marginBottom: "0.15rem",
                         }}
                       >
-                        {occ.book_name_he} {occ.chapter_number}:
-                        {occ.verse_number}
+                        {occ.book_name_he} {occ.chapter_number}:{occ.verse_number}
                       </div>
                       <div dir="rtl" style={{ fontSize: "1rem" }}>
-                        {highlightWordInVerse(
-                          occ.verse_text,
-                          selectedWord
-                        )}
+                        {highlightWordInVerse(occ.verse_text, selectedWord)}
                       </div>
                     </div>
                   ))}
@@ -306,188 +276,322 @@ const loadOccurrences = async (word) => {
   );
 }
 
-// --- composant interne pour la roue ---
+// --- composant interne pour la roue (nouveau rendu SVG style "roue") ---
 
-function TseroufimWheel({
-  baseWord,
-  wheel,
-  wordInfos,
-  dbChecking,
-  onWordClick,
-}) {
-  const radius = 130; // rayon du cercle en px
+function polar(cx, cy, r, deg) {
+  const rad = (deg * Math.PI) / 180;
+  return { x: cx + r * Math.cos(rad), y: cy + r * Math.sin(rad) };
+}
 
-  const legendStyle = {
-    display: "flex",
-    gap: "0.75rem",
-    alignItems: "center",
-    fontSize: "0.8rem",
-    color: "#9ca3af",
-    marginTop: "0.5rem",
-  };
+function sectorPath(cx, cy, rOuter, rInner, degStart, degEnd, ccw = true) {
+  const p1 = polar(cx, cy, rOuter, degStart);
+  const p2 = polar(cx, cy, rOuter, degEnd);
+  const p3 = polar(cx, cy, rInner, degEnd);
+  const p4 = polar(cx, cy, rInner, degStart);
+
+  // ccw=true => sens anti-horaire (proche de ton image)
+  const sweepOuter = ccw ? 0 : 1;
+  const sweepInner = ccw ? 1 : 0;
+
+  return [
+    `M ${p1.x} ${p1.y}`,
+    `A ${rOuter} ${rOuter} 0 0 ${sweepOuter} ${p2.x} ${p2.y}`,
+    `L ${p3.x} ${p3.y}`,
+    `A ${rInner} ${rInner} 0 0 ${sweepInner} ${p4.x} ${p4.y}`,
+    "Z",
+  ].join(" ");
+}
+
+function TseroufimWheel({ baseWord, wheel, wordInfos, dbChecking, onWordClick, selectedWord }) {
+  const [hoverIdx, setHoverIdx] = useState(null);
+
+  const size = 560;
+  const cx = size / 2;
+  const cy = size / 2;
+
+  const outerR = 240;
+  const band = 52;
+
+  const r1Outer = outerR;
+  const r1Inner = outerR - band;
+  const r2Outer = r1Inner;
+  const r2Inner = r2Outer - band;
+  const r3Outer = r2Inner;
+  const r3Inner = r3Outer - band;
+  const centerR = r3Inner - 10;
+
+  const rText = [(r1Outer + r1Inner) / 2, (r2Outer + r2Inner) / 2, (r3Outer + r3Inner) / 2];
+
+  const n = wheel?.length || 0;
+  if (!n) {
+    return null;
+  }
+
+  const step = 360 / n;
+  const startAtTop = -90;
+  const ccw = true;
+
+  const selectedIdx = selectedWord ? wheel.findIndex((w) => w === selectedWord) : -1;
+  const activeIdx = hoverIdx != null ? hoverIdx : selectedIdx;
 
   return (
     <div style={wheelStyles.wrapper}>
-      <div style={wheelStyles.circle}>
-        {/* centre : mot de base */}
-        <div style={wheelStyles.center}>
-          <div dir="rtl" style={{ fontSize: "1.3rem", fontWeight: 700 }}>
+      <div style={wheelStyles.circleCard}>
+        <svg viewBox={`0 0 ${size} ${size}`} style={{ width: "100%", height: "auto", display: "block" }}>
+          <defs>
+            <filter id="glow" x="-60%" y="-60%" width="220%" height="220%">
+              <feGaussianBlur stdDeviation="2.2" result="b" />
+              <feMerge>
+                <feMergeNode in="b" />
+                <feMergeNode in="SourceGraphic" />
+              </feMerge>
+            </filter>
+
+            <radialGradient id="centerGrad" cx="50%" cy="50%" r="60%">
+              <stop offset="0%" stopColor="rgba(34,197,94,0.22)" />
+              <stop offset="65%" stopColor="rgba(34,197,94,0.08)" />
+              <stop offset="100%" stopColor="rgba(34,197,94,0.03)" />
+            </radialGradient>
+          </defs>
+
+          {/* Fond */}
+          <circle cx={cx} cy={cy} r={outerR + 2} fill="rgba(34,197,94,0.02)" />
+
+          {/* Surbrillance secteur actif */}
+          {wheel.map((_, i) => {
+            const ang = startAtTop - i * step; // ccw
+            const a0 = ang - step / 2;
+            const a1 = ang + step / 2;
+
+            const isHot = i === activeIdx;
+            const p = sectorPath(cx, cy, r1Outer, r3Inner, a0, a1, ccw);
+
+            return (
+              <path
+                key={`hl-${i}`}
+                d={p}
+                fill={isHot ? "rgba(34,197,94,0.10)" : "transparent"}
+                stroke="transparent"
+              />
+            );
+          })}
+
+          {/* Anneaux */}
+          {[r1Outer, r1Inner, r2Inner, r3Inner].map((r, k) => (
+            <circle
+              key={`ring-${k}`}
+              cx={cx}
+              cy={cy}
+              r={r}
+              fill="transparent"
+              stroke={k === 0 ? "rgba(34,197,94,0.30)" : "rgba(34,197,94,0.22)"}
+              strokeWidth={k === 0 ? 2 : 1.5}
+            />
+          ))}
+
+          {/* Traits radiaux */}
+          {wheel.map((_, i) => {
+            const ang = startAtTop - i * step;
+            const pOut = polar(cx, cy, r1Outer, ang);
+            const pIn = polar(cx, cy, r3Inner, ang);
+            return (
+              <line
+                key={`rad-${i}`}
+                x1={pIn.x}
+                y1={pIn.y}
+                x2={pOut.x}
+                y2={pOut.y}
+                stroke="rgba(34,197,94,0.18)"
+                strokeWidth="1.2"
+              />
+            );
+          })}
+
+          {/* Secteurs cliquables + lettres sur 3 anneaux */}
+          {wheel.map((w, i) => {
+            const ang = startAtTop - i * step;
+            const a0 = ang - step / 2;
+            const a1 = ang + step / 2;
+
+            const pClick = sectorPath(cx, cy, r1Outer, r3Inner, a0, a1, ccw);
+
+            const info = Array.isArray(wordInfos) ? wordInfos[i] : null;
+            const hasTorah = info && info.torahOccurrences > 0;
+
+            const isSelected = selectedIdx === i;
+            const isHover = hoverIdx === i;
+            const hot = isSelected || isHover;
+
+            const baseFill = "rgba(229,231,235,0.92)";
+            const torahFill = "#22c55e";
+            const fill = hasTorah ? torahFill : baseFill;
+            const fillHot = "#4ade80";
+
+            const [c1, c2, c3] = (w || "").split("");
+            const t1 = polar(cx, cy, rText[0], ang);
+            const t2 = polar(cx, cy, rText[1], ang);
+            const t3 = polar(cx, cy, rText[2], ang);
+
+            const commonText = {
+              textAnchor: "middle",
+              dominantBaseline: "middle",
+              style: {
+                fontFamily: "SBL Hebrew, Noto Sans Hebrew, Noto Serif Hebrew, system-ui",
+                paintOrder: "stroke",
+                stroke: hot ? "rgba(34,197,94,0.35)" : "transparent",
+                strokeWidth: 4,
+              },
+              filter: "url(#glow)",
+            };
+
+            return (
+              <g key={`sec-${i}`}>
+                <path
+                  d={pClick}
+                  fill="transparent"
+                  style={{ cursor: "pointer" }}
+                  onMouseEnter={() => setHoverIdx(i)}
+                  onMouseLeave={() => setHoverIdx(null)}
+                  onClick={() => onWordClick && onWordClick(w)}
+                  title={
+                    hasTorah
+                      ? `Existe dans la Torah (${info.torahOccurrences} occurrence(s))`
+                      : "Pas trouvé dans la base Torah"
+                  }
+                />
+
+                {/* Index petit (optionnel) */}
+                {(() => {
+                  const pIdx = polar(cx, cy, r1Outer + 14, ang);
+                  return (
+                    <text
+                      x={pIdx.x}
+                      y={pIdx.y}
+                      textAnchor="middle"
+                      dominantBaseline="middle"
+                      fontSize="10"
+                      fill="rgba(156,163,175,0.8)"
+                    >
+                      {i + 1}
+                    </text>
+                  );
+                })()}
+
+                <text x={t1.x} y={t1.y} fontSize="22" fill={hot ? fillHot : fill} {...commonText}>
+                  {c1}
+                </text>
+                <text x={t2.x} y={t2.y} fontSize="20" fill={hot ? fillHot : fill} {...commonText}>
+                  {c2}
+                </text>
+                <text x={t3.x} y={t3.y} fontSize="18" fill={hot ? fillHot : fill} {...commonText}>
+                  {c3}
+                </text>
+              </g>
+            );
+          })}
+
+          {/* Centre */}
+          <circle cx={cx} cy={cy} r={centerR} fill="url(#centerGrad)" stroke="rgba(34,197,94,0.28)" strokeWidth="2" />
+
+          <text
+            x={cx}
+            y={cy - 10}
+            textAnchor="middle"
+            dominantBaseline="middle"
+            fontSize="34"
+            fill="#22c55e"
+            filter="url(#glow)"
+            style={{
+              fontFamily: "SBL Hebrew, Noto Sans Hebrew, Noto Serif Hebrew, system-ui",
+              direction: "rtl",
+              letterSpacing: "0.06em",
+            }}
+          >
             {baseWord}
-          </div>
-          <div style={{ fontSize: "0.8rem", color: "#9ca3af" }}>
+          </text>
+
+          <text x={cx} y={cy + 24} textAnchor="middle" dominantBaseline="middle" fontSize="12" fill="rgba(156,163,175,0.9)">
             mot de base
-          </div>
-        </div>
+          </text>
 
-        {/* éléments sur le cercle */}
-        {wheel.map((w, index) => {
-          const angle = (2 * Math.PI * index) / wheel.length; // en radians
-          const x = radius * Math.cos(angle);
-          const y = radius * Math.sin(angle);
+          {/* Petit repère sens de lecture */}
+          <g>
+            <polygon
+              points={`${cx},${cy - outerR - 10} ${cx - 7},${cy - outerR - 24} ${cx + 7},${cy - outerR - 24}`}
+              fill="rgba(34,197,94,0.65)"
+            />
+            <text x={cx - 100} y={cy - outerR - 18} fontSize="12" fill="rgba(156,163,175,0.9)">
+              sens de lecture
+            </text>
+          </g>
+        </svg>
 
-          const transform = `translate(-50%, -50%) translate(${x}px, ${y}px)`;
-
-          const isLast = index === wheel.length - 1;
-
-          const info = Array.isArray(wordInfos)
-            ? wordInfos[index]
-            : null;
-          const hasTorah = info && info.torahOccurrences > 0;
-
-          // Couleurs :
-          // - vert : existe dans la Torah
-          // - bleu : dernier élément (souvent retour au mot d'origine) si pas trouvé
-          // - gris foncé : autre
-          let backgroundColor = "#0f172a";
-          let borderColor = "#1f2937";
-          let color = "#e5e7eb";
-
-          if (hasTorah) {
-            backgroundColor = "#22c55e";
-            borderColor = "#22c55e";
-            color = "#022c22";
-          } else if (isLast) {
-            backgroundColor = "#0ea5e9";
-            borderColor = "#0ea5e9";
-            color = "#02131b";
-          }
-
-          return (
-            <div
-              key={index}
-              style={{
-                ...wheelStyles.item,
-                transform,
-                backgroundColor,
-                color,
-                borderColor,
-                cursor: "pointer",
-              }}
-              title={
-                hasTorah
-                  ? `Existe dans la Torah (${info.torahOccurrences} occurrence(s))`
-                  : "Pas trouvé dans la base Torah"
-              }
-              onClick={() => onWordClick && onWordClick(w)}
-            >
-              <span dir="rtl">{w}</span>
-              <span style={wheelStyles.itemIndex}>{index + 1}</span>
-            </div>
-          );
-        })}
+        {dbChecking && (
+          <p style={{ color: "#9ca3af", fontSize: "0.8rem", marginTop: "0.4rem" }}>
+            Vérification dans la base Torah...
+          </p>
+        )}
       </div>
 
-      {dbChecking && (
-        <p
-          style={{
-            color: "#9ca3af",
-            fontSize: "0.8rem",
-            marginTop: "0.4rem",
-          }}
-        >
-          Vérification dans la base Torah...
-        </p>
-      )}
-
-      {/* liste textuelle en dessous */}
+      {/* Liste textuelle en dessous (cliquable + highlight sélection) */}
       <div style={wheelStyles.listWrapper}>
         <h3 style={{ marginBottom: "0.4rem" }}>Liste des 22 tseroufim</h3>
         <div style={wheelStyles.listScroll}>
           {wheel.map((w, i) => {
-            const info = Array.isArray(wordInfos)
-              ? wordInfos[i]
-              : null;
+            const info = Array.isArray(wordInfos) ? wordInfos[i] : null;
             const hasTorah = info && info.torahOccurrences > 0;
+            const isSelected = selectedWord && w === selectedWord;
 
             return (
-              <div key={i} style={wheelStyles.listRow}>
-                <span
-                  style={{
-                    fontSize: "0.8rem",
-                    color: "#9ca3af",
-                    width: "2rem",
-                  }}
-                >
-                  {i + 1}.
-                </span>
-                <span dir="rtl" style={{ fontSize: "1.1rem" }}>
+              <button
+                key={i}
+                type="button"
+                onClick={() => onWordClick && onWordClick(w)}
+                style={{
+                  ...wheelStyles.listRowBtn,
+                  borderColor: isSelected ? "#22c55e" : "#1f2937",
+                  boxShadow: isSelected ? "0 0 0 1px rgba(34,197,94,0.35)" : "none",
+                }}
+                title={
+                  hasTorah
+                    ? `Existe dans la Torah (${info.torahOccurrences} occurrence(s))`
+                    : "Pas trouvé dans la base Torah"
+                }
+              >
+                <span style={{ fontSize: "0.8rem", color: "#9ca3af", width: "2rem" }}>{i + 1}.</span>
+                <span dir="rtl" style={{ fontSize: "1.1rem", flex: 1 }}>
                   {w}
                 </span>
                 {hasTorah && (
-                  <span
-                    style={{
-                      fontSize: "0.75rem",
-                      color: "#22c55e",
-                      marginLeft: "0.5rem",
-                    }}
-                  >
-                    ({info.torahOccurrences}× dans la Torah)
+                  <span style={{ fontSize: "0.75rem", color: "#22c55e" }}>
+                    ({info.torahOccurrences}×)
                   </span>
                 )}
-              </div>
+              </button>
             );
           })}
         </div>
       </div>
 
-      {/* légende des couleurs */}
-      <div style={legendStyle}>
-        <span
-          style={{
-            width: "10px",
-            height: "10px",
-            borderRadius: "999px",
-            backgroundColor: "#22c55e",
-          }}
-        ></span>
-        <span>Mot présent dans la Torah</span>
+      {/* Légende */}
+      <div style={wheelStyles.legend}>
+        <span style={{ width: 10, height: 10, borderRadius: 999, backgroundColor: "#22c55e" }} />
+        <span>Présent dans la Torah</span>
 
         <span
           style={{
-            width: "10px",
-            height: "10px",
-            borderRadius: "999px",
-            backgroundColor: "#0ea5e9",
+            width: 10,
+            height: 10,
+            borderRadius: 999,
+            backgroundColor: "rgba(229,231,235,0.92)",
           }}
-        ></span>
-        <span>Dernier tserouf (souvent retour)</span>
-
-        <span
-          style={{
-            width: "10px",
-            height: "10px",
-            borderRadius: "999px",
-            backgroundColor: "#0f172a",
-            border: "1px solid #1f2937",
-          }}
-        ></span>
-        <span>Aucun match dans la base</span>
+        />
+        <span>Non trouvé</span>
       </div>
     </div>
   );
 }
 
-// Styles locaux de la roue (indépendants du styles global)
 const wheelStyles = {
   wrapper: {
     marginTop: "1rem",
@@ -496,64 +600,49 @@ const wheelStyles = {
     alignItems: "center",
     gap: "1rem",
   },
-circle: {
-  position: "relative",
-  width: "320px",
-  height: "320px",
-  borderRadius: "50%",
-  border: "1px dashed #1f2937",
-  background: "radial-gradient(circle, #020617 0%, #020617 60%, #020617 100%)",
-  overflow: "visible",
-  },
-  center: {
-    position: "absolute",
-    top: "50%",
-    left: "50%",
-    transform: "translate(-50%, -50%)",
-    padding: "0.6rem 0.9rem",
-    borderRadius: "999px",
-    border: "1px solid #334155",
-    backgroundColor: "#020617",
-    boxShadow: "0 10px 25px rgba(0,0,0,0.6)",
-    textAlign: "center",
-  },
-  item: {
-    position: "absolute",
-    top: "50%",
-    left: "50%",
-    transformOrigin: "center center",
-    padding: "0.3rem 0.6rem",
-    borderRadius: "999px",
+  circleCard: {
+    width: "min(92vw, 620px)",
+    borderRadius: "1rem",
     border: "1px solid #1f2937",
-    fontSize: "1rem",
-    display: "flex",
-    alignItems: "center",
-    gap: "0.25rem",
-    minWidth: "3.5rem",
-    justifyContent: "center",
-    boxShadow: "0 4px 10px rgba(0,0,0,0.5)",
-  },
-  itemIndex: {
-    fontSize: "0.7rem",
-    opacity: 0.7,
+    background: "#020617",
+    padding: "0.8rem",
+    boxShadow: "0 15px 35px rgba(0,0,0,0.55)",
   },
   listWrapper: {
     width: "100%",
-    maxWidth: "420px",
+    maxWidth: "620px",
   },
   listScroll: {
     maxHeight: "200px",
     overflowY: "auto",
     borderRadius: "0.75rem",
     border: "1px solid #1f2937",
-    padding: "0.5rem 0.75rem",
+    padding: "0.5rem 0.6rem",
     backgroundColor: "#020617",
   },
-  listRow: {
+  listRowBtn: {
+    width: "100%",
     display: "flex",
     alignItems: "center",
-    gap: "0.4rem",
-    padding: "0.15rem 0",
+    gap: "0.45rem",
+    padding: "0.35rem 0.5rem",
+    borderRadius: "0.6rem",
+    background: "transparent",
+    border: "1px solid #1f2937",
+    cursor: "pointer",
+    color: "#e5e7eb",
+    marginBottom: "0.35rem",
+    textAlign: "left",
+  },
+  legend: {
+    display: "flex",
+    gap: "0.75rem",
+    alignItems: "center",
+    fontSize: "0.8rem",
+    color: "#9ca3af",
+    marginTop: "0.5rem",
+    flexWrap: "wrap",
+    justifyContent: "center",
   },
 };
 
