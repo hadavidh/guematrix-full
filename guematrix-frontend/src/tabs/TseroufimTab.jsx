@@ -302,7 +302,15 @@ function sectorPath(cx, cy, rOuter, rInner, degStart, degEnd, ccw = true) {
   ].join(" ");
 }
 
-function TseroufimWheel({ baseWord, wheel, wordInfos, dbChecking, onWordClick, selectedWord }) {
+function TseroufimWheel({
+  baseWord,
+  wheel,
+  wordInfos,
+  dbChecking,
+  onWordClick,
+  selectedWord,
+  maxRings = 7, // <= change si tu veux plus/moins d'anneaux visibles
+}) {
   const [hoverIdx, setHoverIdx] = useState(null);
 
   const size = 560;
@@ -310,22 +318,35 @@ function TseroufimWheel({ baseWord, wheel, wordInfos, dbChecking, onWordClick, s
   const cy = size / 2;
 
   const outerR = 240;
-  const band = 52;
 
-  const r1Outer = outerR;
-  const r1Inner = outerR - band;
-  const r2Outer = r1Inner;
-  const r2Inner = r2Outer - band;
-  const r3Outer = r2Inner;
-  const r3Inner = r3Outer - band;
-  const centerR = r3Inner - 10;
+  const splitLetters = (s) => Array.from(s || "");
 
-  const rText = [(r1Outer + r1Inner) / 2, (r2Outer + r2Inner) / 2, (r3Outer + r3Inner) / 2];
+  const maxLen = Math.max(
+    splitLetters(baseWord).length,
+    ...(wheel || []).map((w) => splitLetters(w).length)
+  );
+
+  const rings = Math.max(1, Math.min(maxLen || 1, maxRings));
+  const hasHiddenRings = maxLen > rings;
+
+  // On garde un centre lisible, et on répartit les anneaux autour
+  const minCenterR = 80;
+  const band = (outerR - minCenterR) / rings; // largeur d'un anneau
+  const innerMost = outerR - band * rings; // ~ minCenterR
+  const centerR = Math.max(42, innerMost - 10);
+
+  // Rayon pour texte par anneau
+  const ringTextR = Array.from({ length: rings }, (_, j) => {
+    const ro = outerR - band * j;
+    const ri = outerR - band * (j + 1);
+    return (ro + ri) / 2;
+  });
+
+  // Cercles limites (outer + chaque séparation interne)
+  const ringBoundaries = [outerR, ...Array.from({ length: rings }, (_, j) => outerR - band * (j + 1))];
 
   const n = wheel?.length || 0;
-  if (!n) {
-    return null;
-  }
+  if (!n) return null;
 
   const step = 360 / n;
   const startAtTop = -90;
@@ -334,10 +355,19 @@ function TseroufimWheel({ baseWord, wheel, wordInfos, dbChecking, onWordClick, s
   const selectedIdx = selectedWord ? wheel.findIndex((w) => w === selectedWord) : -1;
   const activeIdx = hoverIdx != null ? hoverIdx : selectedIdx;
 
+  const centerWord =
+    activeIdx != null && activeIdx >= 0 && wheel[activeIdx] ? wheel[activeIdx] : baseWord;
+
+  // Font sizing qui s'adapte au nombre d'anneaux
+  const baseFont = Math.max(11, Math.min(24, band * 0.62));
+
   return (
     <div style={wheelStyles.wrapper}>
       <div style={wheelStyles.circleCard}>
-        <svg viewBox={`0 0 ${size} ${size}`} style={{ width: "100%", height: "auto", display: "block" }}>
+        <svg
+          viewBox={`0 0 ${size} ${size}`}
+          style={{ width: "100%", height: "auto", display: "block" }}
+        >
           <defs>
             <filter id="glow" x="-60%" y="-60%" width="220%" height="220%">
               <feGaussianBlur stdDeviation="2.2" result="b" />
@@ -359,12 +389,12 @@ function TseroufimWheel({ baseWord, wheel, wordInfos, dbChecking, onWordClick, s
 
           {/* Surbrillance secteur actif */}
           {wheel.map((_, i) => {
-            const ang = startAtTop - i * step; // ccw
+            const ang = startAtTop - i * step;
             const a0 = ang - step / 2;
             const a1 = ang + step / 2;
 
             const isHot = i === activeIdx;
-            const p = sectorPath(cx, cy, r1Outer, r3Inner, a0, a1, ccw);
+            const p = sectorPath(cx, cy, outerR, innerMost, a0, a1, ccw);
 
             return (
               <path
@@ -376,8 +406,8 @@ function TseroufimWheel({ baseWord, wheel, wordInfos, dbChecking, onWordClick, s
             );
           })}
 
-          {/* Anneaux */}
-          {[r1Outer, r1Inner, r2Inner, r3Inner].map((r, k) => (
+          {/* Anneaux (multi) */}
+          {ringBoundaries.map((r, k) => (
             <circle
               key={`ring-${k}`}
               cx={cx}
@@ -392,8 +422,8 @@ function TseroufimWheel({ baseWord, wheel, wordInfos, dbChecking, onWordClick, s
           {/* Traits radiaux */}
           {wheel.map((_, i) => {
             const ang = startAtTop - i * step;
-            const pOut = polar(cx, cy, r1Outer, ang);
-            const pIn = polar(cx, cy, r3Inner, ang);
+            const pOut = polar(cx, cy, outerR, ang);
+            const pIn = polar(cx, cy, innerMost, ang);
             return (
               <line
                 key={`rad-${i}`}
@@ -407,13 +437,13 @@ function TseroufimWheel({ baseWord, wheel, wordInfos, dbChecking, onWordClick, s
             );
           })}
 
-          {/* Secteurs cliquables + lettres sur 3 anneaux */}
+          {/* Secteurs cliquables + lettres sur N anneaux */}
           {wheel.map((w, i) => {
             const ang = startAtTop - i * step;
             const a0 = ang - step / 2;
             const a1 = ang + step / 2;
 
-            const pClick = sectorPath(cx, cy, r1Outer, r3Inner, a0, a1, ccw);
+            const pClick = sectorPath(cx, cy, outerR, innerMost, a0, a1, ccw);
 
             const info = Array.isArray(wordInfos) ? wordInfos[i] : null;
             const hasTorah = info && info.torahOccurrences > 0;
@@ -427,10 +457,8 @@ function TseroufimWheel({ baseWord, wheel, wordInfos, dbChecking, onWordClick, s
             const fill = hasTorah ? torahFill : baseFill;
             const fillHot = "#4ade80";
 
-            const [c1, c2, c3] = (w || "").split("");
-            const t1 = polar(cx, cy, rText[0], ang);
-            const t2 = polar(cx, cy, rText[1], ang);
-            const t3 = polar(cx, cy, rText[2], ang);
+            const letters = splitLetters(w);
+            const shownLetters = letters.slice(0, rings); // si mot > maxRings, on tronque l’affichage
 
             const commonText = {
               textAnchor: "middle",
@@ -454,15 +482,15 @@ function TseroufimWheel({ baseWord, wheel, wordInfos, dbChecking, onWordClick, s
                   onMouseLeave={() => setHoverIdx(null)}
                   onClick={() => onWordClick && onWordClick(w)}
                   title={
-                    hasTorah
+                    (hasTorah
                       ? `Existe dans la Torah (${info.torahOccurrences} occurrence(s))`
-                      : "Pas trouvé dans la base Torah"
+                      : "Pas trouvé dans la base Torah") + ` — ${w}`
                   }
                 />
 
-                {/* Index petit (optionnel) */}
+                {/* Index extérieur */}
                 {(() => {
-                  const pIdx = polar(cx, cy, r1Outer + 14, ang);
+                  const pIdx = polar(cx, cy, outerR + 14, ang);
                   return (
                     <text
                       x={pIdx.x}
@@ -477,28 +505,45 @@ function TseroufimWheel({ baseWord, wheel, wordInfos, dbChecking, onWordClick, s
                   );
                 })()}
 
-                <text x={t1.x} y={t1.y} fontSize="22" fill={hot ? fillHot : fill} {...commonText}>
-                  {c1}
-                </text>
-                <text x={t2.x} y={t2.y} fontSize="20" fill={hot ? fillHot : fill} {...commonText}>
-                  {c2}
-                </text>
-                <text x={t3.x} y={t3.y} fontSize="18" fill={hot ? fillHot : fill} {...commonText}>
-                  {c3}
-                </text>
+                {/* Lettres par anneau */}
+                {shownLetters.map((ch, ringIdx) => {
+                  const p = polar(cx, cy, ringTextR[ringIdx], ang);
+                  const fs = Math.max(10, baseFont - ringIdx * 1.1);
+
+                  return (
+                    <text
+                      key={`l-${i}-${ringIdx}`}
+                      x={p.x}
+                      y={p.y}
+                      fontSize={fs}
+                      fill={hot ? fillHot : fill}
+                      {...commonText}
+                    >
+                      {ch}
+                    </text>
+                  );
+                })}
               </g>
             );
           })}
 
           {/* Centre */}
-          <circle cx={cx} cy={cy} r={centerR} fill="url(#centerGrad)" stroke="rgba(34,197,94,0.28)" strokeWidth="2" />
+          <circle
+            cx={cx}
+            cy={cy}
+            r={centerR}
+            fill="url(#centerGrad)"
+            stroke="rgba(34,197,94,0.28)"
+            strokeWidth="2"
+          />
 
+          {/* Mot actif (hover/selected) */}
           <text
             x={cx}
-            y={cy - 10}
+            y={cy - 8}
             textAnchor="middle"
             dominantBaseline="middle"
-            fontSize="34"
+            fontSize={Math.max(22, 34 - Math.max(0, (maxLen - 3) * 2))}
             fill="#22c55e"
             filter="url(#glow)"
             style={{
@@ -507,14 +552,21 @@ function TseroufimWheel({ baseWord, wheel, wordInfos, dbChecking, onWordClick, s
               letterSpacing: "0.06em",
             }}
           >
-            {baseWord}
+            {centerWord}
           </text>
 
-          <text x={cx} y={cy + 24} textAnchor="middle" dominantBaseline="middle" fontSize="12" fill="rgba(156,163,175,0.9)">
-            mot de base
+          <text
+            x={cx}
+            y={cy + 22}
+            textAnchor="middle"
+            dominantBaseline="middle"
+            fontSize="12"
+            fill="rgba(156,163,175,0.9)"
+          >
+            {activeIdx != null && activeIdx >= 0 ? "tserouf sélectionné" : "mot de base"}
           </text>
 
-          {/* Petit repère sens de lecture */}
+          {/* Repère sens de lecture */}
           <g>
             <polygon
               points={`${cx},${cy - outerR - 10} ${cx - 7},${cy - outerR - 24} ${cx + 7},${cy - outerR - 24}`}
@@ -531,11 +583,17 @@ function TseroufimWheel({ baseWord, wheel, wordInfos, dbChecking, onWordClick, s
             Vérification dans la base Torah...
           </p>
         )}
+
+        {hasHiddenRings && (
+          <p style={{ color: "#9ca3af", fontSize: "0.8rem", marginTop: "0.4rem" }}>
+            Mot long : affichage limité à {maxRings} anneaux (survol/clic = mot complet au centre).
+          </p>
+        )}
       </div>
 
-      {/* Liste textuelle en dessous (cliquable + highlight sélection) */}
+      {/* Liste textuelle */}
       <div style={wheelStyles.listWrapper}>
-        <h3 style={{ marginBottom: "0.4rem" }}>Liste des 22 tseroufim</h3>
+        <h3 style={{ marginBottom: "0.4rem" }}>Liste des {n} tseroufim</h3>
         <div style={wheelStyles.listScroll}>
           {wheel.map((w, i) => {
             const info = Array.isArray(wordInfos) ? wordInfos[i] : null;
@@ -558,7 +616,9 @@ function TseroufimWheel({ baseWord, wheel, wordInfos, dbChecking, onWordClick, s
                     : "Pas trouvé dans la base Torah"
                 }
               >
-                <span style={{ fontSize: "0.8rem", color: "#9ca3af", width: "2rem" }}>{i + 1}.</span>
+                <span style={{ fontSize: "0.8rem", color: "#9ca3af", width: "2rem" }}>
+                  {i + 1}.
+                </span>
                 <span dir="rtl" style={{ fontSize: "1.1rem", flex: 1 }}>
                   {w}
                 </span>
@@ -591,6 +651,7 @@ function TseroufimWheel({ baseWord, wheel, wordInfos, dbChecking, onWordClick, s
     </div>
   );
 }
+
 
 const wheelStyles = {
   wrapper: {
