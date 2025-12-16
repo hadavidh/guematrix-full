@@ -18,19 +18,129 @@ const pool = new Pool({
 
 
 // ===============================================
+
+// ===============================================
+// 1.b Références pour la légende (livre/chapitre/verset)
+// ===============================================
+// GET /api/torah/refs?indices=105,200,300&withText=1
+// Renvoie la référence (livre/chapitre/verset) correspondant à chaque index lettre
+// dans la Torah "sans espaces". (On mappe l'index lettre -> mot -> verset.)
+
+const verseTextCache = new Map();
+
+function findWordIndexForLetterIndex(letterIndex, wordStarts, wordEnds) {
+  if (!Number.isFinite(letterIndex)) return -1;
+  if (!Array.isArray(wordStarts) || !Array.isArray(wordEnds)) return -1;
+  if (wordStarts.length === 0) return -1;
+
+  let lo = 0;
+  let hi = wordStarts.length - 1;
+  let ans = -1;
+
+  while (lo <= hi) {
+    const mid = (lo + hi) >> 1;
+    if (wordStarts[mid] <= letterIndex) {
+      ans = mid;
+      lo = mid + 1;
+    } else {
+      hi = mid - 1;
+    }
+  }
+
+  if (ans < 0) return -1;
+  if (letterIndex > wordEnds[ans]) return -1;
+  return ans;
+}
+
+async function getVerseTextHe(verseId) {
+  if (!verseId) return null;
+  if (verseTextCache.has(verseId)) return verseTextCache.get(verseId);
+
+  const sql = `
+    SELECT string_agg(w.text_he, ' ' ORDER BY w.word_index) AS verse_text_he
+    FROM words w
+    WHERE w.verse_id = $1
+  `;
+  const { rows } = await pool.query(sql, [verseId]);
+  const text = rows?.[0]?.verse_text_he || null;
+  verseTextCache.set(verseId, text);
+  return text;
+}
+
+app.get("/api/torah/refs", async (req, res) => {
+  try {
+    const raw = (req.query.indices || "").toString().trim();
+    const withText = req.query.withText === "1" || req.query.withText === "true";
+
+    if (!raw) return res.json({ refs: [] });
+
+    const asked = raw
+      .split(",")
+      .map((x) => x.trim())
+      .filter(Boolean)
+      .slice(0, 300); // sécurité
+
+    const indices = asked.map((x) => parseInt(x, 10));
+
+    // buildTorahCache() doit retourner en cache:
+    // - wordStarts, wordEnds (tableaux d'index)
+    const { wordStarts, wordEnds, wordMeta } = await buildTorahCache();
+
+    const refs = [];
+    for (let i = 0; i < indices.length; i++) {
+      const idx = indices[i];
+      if (!Number.isFinite(idx)) {
+        refs.push({ index: asked[i], found: false });
+        continue;
+      }
+
+      const wi = findWordIndexForLetterIndex(idx, wordStarts, wordEnds);
+      if (wi < 0) {
+        refs.push({ index: idx, found: false });
+        continue;
+      }
+
+      const meta = wordMeta?.[wi];
+      if (!meta) {
+        refs.push({ index: idx, found: false });
+        continue;
+      }
+
+      const verse_text_he = withText ? await getVerseTextHe(meta.verse_id) : null;
+
+      refs.push({
+        index: idx,
+        found: true,
+        verse_id: meta.verse_id,
+        book_name_he: meta.book_name_he,
+        book_code: meta.book_code,
+        chapter_number: meta.chapter_number,
+        verse_number: meta.verse_number,
+        verse_text_he,
+      });
+    }
+
+    return res.json({ refs });
+  } catch (err) {
+    console.error("ERREUR /api/torah/refs :", err);
+    res.status(500).json({ error: "Erreur lors de la récupération des références" });
+  }
+});
 // 1. Torah linéaire pour l'onglet "Codes Torah"
 // ===============================================
 
-let torahLettersString = null;
+let torahCache = null;
 
-async function buildTorahLettersString() {
-  if (torahLettersString) return torahLettersString;
+async function buildTorahCache() {
+  if (torahCache) return torahCache;
 
   const sql = `
-    SELECT
-      b.order_index,
-      c.number       AS chapter_number,
-      v.verse_num    AS verse_number,
+    SELECT      b.order_index,
+      b.name_he          AS book_name_he,
+      b.code             AS book_code,
+      c.number           AS chapter_number,
+      v.verse_num        AS verse_number,
+      v.id               AS verse_id,
       w.word_index,
       w.text_he_no_niqqud
     FROM words w
@@ -41,27 +151,72 @@ async function buildTorahLettersString() {
   `;
 
   const { rows } = await pool.query(sql);
+
   const parts = [];
+  const wordStarts = [];
+  const wordEnds = [];
+  const wordMeta = [];
+
+  let offset = 0;
   for (const row of rows) {
-    if (row.text_he_no_niqqud) {
-      parts.push(row.text_he_no_niqqud);
-    }
+    const w = row.text_he_no_niqqud;
+    if (!w) continue;
+
+    const start = offset;
+    const end = offset + w.length - 1;
+
+    wordStarts.push(start);
+    wordEnds.push(end);
+    wordMeta.push({
+      start,
+      end,
+      verse_id: row.verse_id,
+      book_name_he: row.book_name_he,
+      book_code: row.book_code,
+      chapter_number: row.chapter_number,
+      verse_number: row.verse_number,
+    });
+
+    offset += w.length;
+    parts.push(w);
   }
-  torahLettersString = parts.join("");
-  console.log("Torah linéaire construite, longueur =", torahLettersString.length);
-  return torahLettersString;
+
+  const torah = parts.join("");
+  torahCache = {
+    torah,
+    wordStarts,
+    wordEnds,
+    wordMeta,
+    wordCount: wordStarts.length,
+  };
+
+  console.log(
+    "Torah linéaire construite, longueur =",
+    torah.length,
+    "| mots =",
+    torahCache.wordCount
+  );
+
+  return torahCache;
 }
 
 // GET /api/torah/raw
+// Option: ?meta=1 pour inclure les index des débuts/fins de mots (utile pour ר״ת / ס״ת).
 app.get("/api/torah/raw", async (req, res) => {
   try {
-    const torah = await buildTorahLettersString();
-    res.json({ torah });
+    const { torah, wordStarts, wordEnds, wordCount } = await buildTorahCache();
+    const meta = req.query.meta === "1";
+
+    if (meta) {
+      return res.json({ torah, wordStarts, wordEnds, wordCount });
+    }
+    return res.json({ torah });
   } catch (err) {
     console.error("ERREUR /api/torah/raw :", err);
     res.status(500).json({ error: "Erreur lors du chargement de la Torah" });
   }
 });
+
 
 // ==========================
 // 2. Statistiques globales
@@ -444,4 +599,4 @@ app.get("/api/verse", async (req, res) => {
 const PORT = process.env.PORT || 3001;
 app.listen(PORT, () => {
   console.log(`API Torah DB en écoute sur http://localhost:${PORT}/api`);
-});
+})
