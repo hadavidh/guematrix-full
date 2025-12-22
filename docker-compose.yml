@@ -11,47 +11,44 @@ services:
     ports:
       - "5432:5432"
     volumes:
-      # Données persistées sur ton disque (pour pas tout perdre à chaque fois)
       - ./docker/postgres/data:/var/lib/postgresql/data
-      # Scripts d'initialisation (ton dump est ici)
       - ./docker/postgres/init:/docker-entrypoint-initdb.d
 
   db-api-node:
-      build: ./db-api-node
-      image: dave67000/guematrix:db-api-node
-      depends_on:
-       - postgres
-      environment:
-        DB_HOST: postgres
-        DB_PORT: 5432
-        DB_USER: postgres
-        DB_PASSWORD: torahpass
-        DB_NAME: torah_gematria
-      ports:
+    build: ./db-api-node
+    image: dave67000/guematrix-db-api-node:${TAG:-latest}
+    depends_on:
+      - postgres
+    environment:
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_USER: postgres
+      DB_PASSWORD: torahpass
+      DB_NAME: torah_gematria
+    ports:
       - "3001:3001"
 
   guematrix-backend:
-      build: ./guematrixbackend
-      image: dave67000/guematrix:backend
-      restart: unless-stopped
-      depends_on:
-       - postgres
-      environment:
-        DB_HOST: postgres
-        DB_PORT: 5432
-        DB_USER: postgres
-        DB_PASSWORD: torahpass
-        DB_NAME: torah_gematria
-      ports:
+    build: ./guematrixbackend
+    image: dave67000/guematrix-backend:${TAG:-latest}
+    restart: unless-stopped
+    depends_on:
+      - postgres
+    environment:
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_USER: postgres
+      DB_PASSWORD: torahpass
+      DB_NAME: torah_gematria
+    ports:
       - "8085:8085"
 
   guematrix-frontend:
     build: ./guematrix-frontend
-    image: dave67000/guematrix:frontend
+    image: dave67000/guematrix-frontend:${TAG:-latest}
     restart: unless-stopped
     depends_on:
       - db-api-node
       - guematrix-backend
     ports:
       - "5173:80"
-
