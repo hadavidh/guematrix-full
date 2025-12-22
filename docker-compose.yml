@@ -16,7 +16,7 @@ services:
 
   db-api-node:
     build: ./db-api-node
-    image: dave67000/guematrix-db-api-node:${TAG:-latest}
+    image: dave67000/guematrix:db-api-node-${GUEMATRIX_VERSION:-1.0.0}
     depends_on:
       - postgres
     environment:
@@ -30,7 +30,7 @@ services:
 
   guematrix-backend:
     build: ./guematrixbackend
-    image: dave67000/guematrix-backend:${TAG:-latest}
+    image: dave67000/guematrix:backend-${GUEMATRIX_VERSION:-1.0.0}
     restart: unless-stopped
     depends_on:
       - postgres
@@ -45,10 +45,11 @@ services:
 
   guematrix-frontend:
     build: ./guematrix-frontend
-    image: dave67000/guematrix-frontend:${TAG:-latest}
+    image: dave67000/guematrix:frontend-${GUEMATRIX_VERSION:-1.0.0}
     restart: unless-stopped
     depends_on:
       - db-api-node
       - guematrix-backend
     ports:
       - "5173:80"
+
