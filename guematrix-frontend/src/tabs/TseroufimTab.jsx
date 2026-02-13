@@ -1,7 +1,8 @@
 import { useState } from "react";
 
-const API_SPRING = "http://localhost:8085/guematrix/gematria"; // backend Java
-const API_DB = "http://localhost:3001/api"; // backend Node (Postgres)
+import { API_DB, API_GUEMATRIX } from "../apiBase";
+const API_SPRING = API_GUEMATRIX;
+
 
 // Utilitaire pour surligner le mot dans le verset
 function highlightWordInVerse(verseText, word) {

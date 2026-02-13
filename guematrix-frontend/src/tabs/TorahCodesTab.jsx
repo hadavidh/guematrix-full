@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 
-const API_BASE_DB = "http://localhost:3001/api";
+import { API_DB } from "../apiBase";
+const API_BASE_DB = API_DB;
 
 const WORD_COLORS = [
   { backgroundColor: "#38bdf8", color: "#0f172a" }, // bleu

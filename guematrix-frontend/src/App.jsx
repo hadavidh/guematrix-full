@@ -19,13 +19,13 @@ function App() {
           <div style={styles.headerRow}>
             <div>
               <h1 style={styles.title}>GueMatriX</h1>
-              <p style={styles.subtitle}>
-                Backend guematria :{" "}
-                <code>http://localhost:8085/guematrix/gematria</code>
-              </p>
-              <p style={styles.subtitleSmall}>
-                Backend Torah DB : <code>http://localhost:3001/api</code>
-              </p>
+                 <p style={styles.subtitleSmall}>
+                    Backend guematria : <code>{window.location.origin}/guematrix/gematria</code>
+                 </p>
+                  <p style={styles.subtitleSmall}>
+                      Backend Torah DB : <code>{window.location.origin}/api</code>
+                   </p>
+
             </div>
 
             <div style={styles.tabsRow}>

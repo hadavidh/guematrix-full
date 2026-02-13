@@ -1,4 +1,6 @@
 import { useState } from "react";
+import { API_GUEMATRIX } from "../apiBase";
+
 
 const METHODS = [
   { value: "hechrechi", label: "Mispar Hechrechi" },
@@ -43,9 +45,7 @@ function CalculatorTab({ styles }) {
         method: method,
       });
 
-      const response = await fetch(
-        `http://localhost:8085/guematrix/gematria?${params.toString()}`
-      );
+      const response = await fetch(`${API_GUEMATRIX}?${params.toString()}`);
 
       if (!response.ok) {
         throw new Error(`Erreur serveur : ${response.status}`);

@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
 
-const API_BASE_DB = "http://localhost:3001/api";
+import { API_DB } from "../apiBase";
+const API_BASE_DB = API_DB;
 
 function TorahDbTab({ styles }) {
   const [stats, setStats] = useState(null);
